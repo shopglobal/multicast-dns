@@ -2,6 +2,7 @@ var packet = require('dns-packet')
 var dgram = require('dgram')
 var thunky = require('thunky')
 var events = require('events')
+var os = require('os')
 
 var noop = function () {}
 
@@ -14,6 +15,31 @@ module.exports = function (opts) {
   var ip = opts.ip || opts.host || (type === 'udp4' ? '224.0.0.251' : null)
   var me = {address: ip, port: port}
   var destroyed = false
+
+  var localInterfaces = (function () {
+    var osInterfaces = os.networkInterfaces()
+    var localAddresses = {
+      v4: [],
+      v6: []
+    }
+    for (var osInterface in osInterfaces) {
+      var osAddresses = osInterfaces[osInterface]
+      for (var i = 0; i < osAddresses.length; i++) {
+        var osAddress = osAddresses[i]
+        if (osAddress.internal) continue
+        if (osAddress.family === 'IPv4') localAddresses.v4.push(osAddress.address)
+        if (osAddress.family === 'IPv6') localAddresses.v6.push(osAddress.address)
+      }
+    }
+    return localAddresses
+  })()
+
+  if (!opts.interface) {
+    if (type === 'udp4') opts.interface = localInterfaces.v4
+    if (type === 'udp6') opts.interface = localInterfaces.v6
+  } else {
+    opts.interface = [ opts.interface ]
+  }
 
   if (type === 'udp6' && (!ip || !opts.interface)) {
     throw new Error('For IPv6 multicast you must specify `ip` and `interface`')
@@ -49,7 +75,9 @@ module.exports = function (opts) {
   socket.on('listening', function () {
     if (!port) port = me.port = socket.address().port
     if (opts.multicast !== false) {
-      socket.addMembership(ip, opts.interface)
+      for (var i = 0; i < opts.interface.length; i++) {
+        socket.addMembership(ip, opts.interface[i])
+      }
       socket.setMulticastTTL(opts.ttl || 255)
       socket.setMulticastLoopback(opts.loopback !== false)
     }
@@ -58,7 +86,7 @@ module.exports = function (opts) {
   var bind = thunky(function (cb) {
     if (!port) return cb(null)
     socket.once('error', cb)
-    socket.bind(port, opts.interface, function () {
+    socket.bind({port: port}, function () {
       socket.removeListener('error', cb)
       cb(null)
     })
