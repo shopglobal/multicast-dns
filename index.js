@@ -86,10 +86,17 @@ module.exports = function (opts) {
   var bind = thunky(function (cb) {
     if (!port) return cb(null)
     socket.once('error', cb)
-    socket.bind({port: port}, function () {
-      socket.removeListener('error', cb)
-      cb(null)
-    })
+    if (opts.interface.length === 1) {
+      socket.bind({port: port, address: opts.interface[0]}, function () {
+        socket.removeListener('error', cb)
+        cb(null)
+      })
+    } else {
+      socket.bind({port: port}, function () {
+        socket.removeListener('error', cb)
+        cb(null)
+      })
+    }
   })
 
   bind(function (err) {
